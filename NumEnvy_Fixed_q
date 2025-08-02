@@ -6,6 +6,18 @@ import matplotlib.pyplot as plt
 from itertools import permutations
 
 #Creates the valuation Matrix
+# def instance(num_agents, num_houses, max_value=10):
+#     M = np.zeros((num_agents, num_houses), dtype=int)
+#     for agent in range(num_agents):
+#         for house in range(num_houses):
+#             M[agent, house] = np.random.randint(0, max_value + 1)
+#         # k = np.random.randint(4, num_houses)  # Between 0 and 5 inclusive
+#         # if k > 0:
+#         #     liked_houses = np.random.choice(num_houses, size=k, replace=False)
+#         #     M[agent, liked_houses] = np.random.randint(1, max_value + 1, size=k)
+#     print(M)
+#     return M
+
 def instance(filename, instance_number):
     with open(filename, 'r') as f:
         lines = f.readlines()
@@ -53,7 +65,6 @@ def max_weighted_matching(M):
 def calculate_total_welfare(valuations, allocation):
     total_welfare = 0
     for pair in allocation:
-        # Accept both (agent_idx, house_idx) or ('A0', 'H3')
         if isinstance(pair[0], str):
             agent_idx = int(pair[0][1:])
             house_idx = int(pair[1][1:])
@@ -61,7 +72,6 @@ def calculate_total_welfare(valuations, allocation):
             agent_idx, house_idx = pair
         total_welfare += valuations[agent_idx, house_idx]
     return total_welfare
-
 
 def calculate_num_envy(allocation_dict, valuations):
     if isinstance(allocation_dict, list):
@@ -83,6 +93,7 @@ def calculate_num_envy(allocation_dict, valuations):
                 envy_count += 1
                 break
     return envy_count
+
 
 
 #calculates what we call A \oplus P in the paper
@@ -166,7 +177,7 @@ def apply_all_components(initial_allocation, paths):
 
 from itertools import combinations
 
-def apply_q_components_brute_force(max_welfare_allocation, reordered_labeled_paths, valuations, q):
+def apply_q_components_brute_force(max_welfare_allocation, reordered_labeled_paths, valuations, q=4):
     original_envy = calculate_num_envy(max_welfare_allocation, valuations)
     
     # Precompute agent counts for each path
@@ -204,9 +215,7 @@ def apply_q_components_brute_force(max_welfare_allocation, reordered_labeled_pat
     return best_allocation
 
 
-
-
-def apply_q_components(max_welfare_allocation, reordered_labeled_paths, valuations, q):
+def apply_q_components(max_welfare_allocation, reordered_labeled_paths, valuations, q=4):
     # Calculate original envy for reference
     original_envy = calculate_num_envy(max_welfare_allocation, valuations)
     # Precompute properties for each path
@@ -244,11 +253,7 @@ def apply_q_components(max_welfare_allocation, reordered_labeled_paths, valuatio
     
     return max_welfare_allocation
 
-    #Use knapsack and choose which components from the reordered labeled paths should be applied to the max_welfare_allocation in order to get
-    #  maximum reduction in the envy while changing the allocation of at most q agents.
-    # return max_welfare_allocation 
 
-#From the good coloring, computes the feasible components based on the conditions specified in the problem.
 def find_feasible_components(G, vertex_colors, edge_colors, A_hat, valuations):
     red_edges = [e for e, color in edge_colors.items() if color == 'red']
     G_red = G.edge_subgraph(red_edges)
@@ -269,9 +274,9 @@ def find_feasible_components(G, vertex_colors, edge_colors, A_hat, valuations):
         # Condition 3: No internal blue edges
         if has_internal_blue_edges(nodes_in_path, edge_colors):
             continue 
-        # # Condition 4: Niceness check
-        # if not is_nice_component(nodes_in_path, components, A_hat, valuations):
-        #     continue
+        # Condition 4: Niceness check
+        if not is_nice_component(nodes_in_path, components, A_hat, valuations):
+            continue
         feasible.append(nodes_in_path)
         feasible_paths.append(path)
     return feasible, feasible_paths
@@ -341,6 +346,20 @@ def has_internal_blue_edges(component, edge_colors):
                 return True
     return False
 
+def is_nice_component(current_comp, all_comps, A_hat, valuations):
+    # for other_comp in all_comps:
+    #     if other_comp == current_comp:
+    #         continue
+    #     # Check if combined effect equals sum of individual effects
+    #     combined_envy_reduction = calculate_envy_reduction([current_comp, other_comp], optimal_allocation, valuations)
+    #     individual_sum = (calculate_envy_reduction([current_comp], optimal_allocation, valuations) 
+    #                     + calculate_envy_reduction([other_comp], optimal_allocation, valuations))
+        
+    #     if combined_envy_reduction != individual_sum:
+    #         return False
+            
+    return True
+    # Simplified check 
 
 def calculate_envy_reduction(path, A_hat, valuations):
     temp_alloc = apply_all_components(A_hat, path)
@@ -349,7 +368,7 @@ def calculate_envy_reduction(path, A_hat, valuations):
     new_envy = calculate_num_envy(temp_alloc, valuations)
     return original_envy - new_envy
 
-# def compute_min_envy(A, A_hat, valuations):
+def compute_min_envy(A, A_hat, valuations):
     n_agents = len(A)
     m_houses = valuations.shape[1]
     G = nx.Graph()
@@ -394,6 +413,10 @@ def calculate_envy_reduction(path, A_hat, valuations):
     for item in range(len(items_n_C)):
         items.append((items_r_C[item], items_n_C[item]))
 
+    # 5. Solve knapsack problem
+
+    # print(items)
+
     q = sum(n for _, n in items)
     k = r_C
     print("k, q:", k, q)
@@ -401,9 +424,8 @@ def calculate_envy_reduction(path, A_hat, valuations):
 
 
 n_agents = 6
-m_houses = 11
-num_instances = 1000
-qs = list(range(0, 7))
+houses_list = [7,8,9,10,11]
+num_instances = 100
 
 
 avg_welfare_max = []
@@ -416,95 +438,95 @@ ci_fair_lower = []
 ci_fair_q_upper = []
 ci_fair_q_lower = []
 
-welfare_max_values = []
-welfare_fair_values = []
-welfare_fair_q_values = []
-
-welfare_max_all = []
-welfare_fair_q = [[] for _ in qs]  # each sublist stores welfare for that q across instances
-
 
 filename = 'HouseAllocationInstances.csv'
 
-for i in range(num_instances):
-    valuations = instance(filename, i)
-    min_envy = float('inf')
-    best_allocs = []
-    houses_idx = list(range(m_houses))
-    for perm in permutations(houses_idx, n_agents):
-        alloc = [(agent, house) for agent, house in enumerate(perm)]
-        envy = calculate_num_envy(alloc, valuations)
-        if envy < min_envy:
-            min_envy = envy
-            best_allocs = [alloc]
-        elif envy == min_envy:
-            best_allocs.append(alloc)
-    optimal_fair_alloc = max(best_allocs, key=lambda alloc: calculate_total_welfare(valuations, alloc))
 
-    # Step 2: Max-welfare allocation (fixed for all q)
-    max_welfare_alloc = max_weighted_matching(valuations)
-    max_w = calculate_total_welfare(valuations, max_welfare_alloc)
-    welfare_max_all.append(max_w)
+for m_houses in houses_list:
+    welfare_max_values = []
+    welfare_fair_values = []
+    welfare_fair_q_values = []
 
-    # Step 3: Reuse component structure to apply q changes
-    G = nx.Graph()
-    G.add_nodes_from(range(n_agents + m_houses))
-    for a in range(n_agents):
-        for h in range(m_houses):
-            G.add_edge(a, n_agents + h)
+    for i in range(num_instances):
+        #find an optimal min total envy allocation with maximium welfare and store it in optimal allocation
+        valuations = instance(filename, i)
+        # valuations = instance(n_agents, m_houses)
+        # print(valuations)
 
-    vertex_colors, edge_colors = good_coloring(G, optimal_fair_alloc, max_welfare_alloc, n_agents, m_houses)
-    feasible_comps, feasible_paths = find_feasible_components(G, vertex_colors, edge_colors, max_welfare_alloc, valuations)
-    labeled_paths = convert_feasible_paths(feasible_paths, n_agents)
-    reordered_labeled_paths = reorder_labeled_paths(labeled_paths, optimal_fair_alloc)
+        min_num_envy = float('inf')
+        best_allocations = []
+        houses_idx = list(range(m_houses))
 
-    # Step 4: For each q, apply up to q improvements and record welfare
-    for idx, q in enumerate(qs):
-        fair_alloc_q = apply_q_components(max_welfare_alloc, reordered_labeled_paths, valuations, q)
-        fair_w = calculate_total_welfare(valuations, fair_alloc_q)
-        welfare_fair_q[idx].append(fair_w)
+        for perm in permutations(houses_idx, n_agents):
+            allocation = [(agent, house) for agent, house in enumerate(perm)]
+            current_envy = calculate_num_envy(allocation, valuations)
+            if current_envy < min_num_envy:
+                min_num_envy = current_envy
+                best_allocations = [allocation]
+            elif current_envy == min_num_envy:
+                best_allocations.append(allocation)
 
-# mean_max = np.mean(welfare_max_all)
-# std_max = np.std(welfare_max_all, ddof=1)
-# ci_max = 1.96 * std_max / np.sqrt(num_instances)
-# ci_max_lower = [mean_max - ci_max] * len(qs)
-# ci_max_upper = [mean_max + ci_max] * len(qs)
+        max_w = -1
+        optimal_allocation = None
+        for alloc in best_allocations:
+            welfare = calculate_total_welfare(valuations, alloc)
+            if welfare > max_w:
+                max_w = welfare
+                optimal_allocation = alloc
 
+        
 
-mean_max = np.mean(welfare_max_all) / n_agents
-std_max = np.std(welfare_max_all, ddof=1) / n_agents
-ci_max = 1.96 * std_max / np.sqrt(num_instances)
-ci_max_lower = [mean_max - ci_max] * len(qs)
-ci_max_upper = [mean_max + ci_max] * len(qs)
+        G = nx.Graph()
+        n_agents, m_houses = valuations.shape
+        for agent in range(n_agents):
+            for house in range(m_houses):
+                if valuations[agent, house] > 0:
+                    G.add_edge(f'i{agent}', f'h{house}')
+        
+        max_welfare_allocation = max_weighted_matching(valuations)
 
-# mean_fair = [np.mean(wlist) for wlist in welfare_fair_q]
-# ci_lower = [np.mean(w) - 1.96 * np.std(w, ddof=1) / np.sqrt(num_instances) for w in welfare_fair_q]
-# ci_upper = [np.mean(w) + 1.96 * np.std(w, ddof=1) / np.sqrt(num_instances) for w in welfare_fair_q]
+        print("This is optimal min total envy allocation:", optimal_allocation)
 
-mean_fair = [np.mean(wlist) / n_agents for wlist in welfare_fair_q]
-ci_lower = [np.mean(w) / n_agents - 1.96 * np.std(w, ddof=1) / np.sqrt(num_instances) / n_agents for w in welfare_fair_q]
-ci_upper = [np.mean(w) / n_agents + 1.96 * np.std(w, ddof=1) / np.sqrt(num_instances) / n_agents for w in welfare_fair_q]
+        alternating_components = find_alternating_components(optimal_allocation, max_welfare_allocation, valuations)
+        A_hat_paths = apply_all_components(max_welfare_allocation, alternating_components)
+        k, q = compute_min_envy(optimal_allocation, max_welfare_allocation, valuations)
+
+    # Calculate mean and 95% CI for max welfare
+    mean_max = np.mean(welfare_max_values)
+    sem_max = np.std(welfare_max_values, ddof=1) / np.sqrt(num_instances)
+    avg_welfare_max.append(mean_max)
+    ci_max_upper.append(mean_max + 1.96 * sem_max)
+    ci_max_lower.append(mean_max - 1.96 * sem_max)
+
+    # Calculate mean and 95% CI for fair welfare
+    mean_fair = np.mean(welfare_fair_values)
+    sem_fair = np.std(welfare_fair_values, ddof=1) / np.sqrt(num_instances)
+    avg_welfare_fair.append(mean_fair)
+    ci_fair_upper.append(mean_fair + 1.96 * sem_fair)
+    ci_fair_lower.append(mean_fair - 1.96 * sem_fair)
+
+    # Calculate mean and 95% CI for fair_q welfare:
+    mean_fair_q = np.mean(welfare_fair_q_values)    
+    sem_fair_q = np.std(welfare_fair_q_values, ddof=1) / np.sqrt(num_instances)
+    avg_welfare_fair_q.append(mean_fair_q)
+    ci_fair_q_upper.append(mean_fair_q + 1.96 * sem_fair_q)
+    ci_fair_q_lower.append(mean_fair_q - 1.96 * sem_fair_q)
+
+    # avg_welfare_fair.append(np.mean(welfare_fair_values))
+    # avg_welfare_max.append(np.mean(welfare_max_values))
+
 
 plt.figure(figsize=(10, 6))
-
-# Max-welfare line + CI band
-plt.plot(qs, [mean_max] * len(qs), label='Average Social Welfare Per Agent', color='blue', marker='o')
-plt.fill_between(qs,ci_max_lower, ci_max_upper, color='blue', alpha=0.2)
-
-# Fair-with-q-changes line + CI band
-plt.plot(qs, mean_fair, label='Average Social Welfare after q Reallocations', color='green', marker='x')
-plt.fill_between(qs,ci_lower, ci_upper, color='green', alpha=0.2)
-
-plt.xlabel('Number of Reallocations (q)',fontsize=16)
-plt.ylabel('Average Social Welfare',fontsize=16)
-plt.title('Welfare Loss After q Reallocations',fontsize=16)
+plt.plot(houses_list, avg_welfare_max, label='Max Welfare Allocation', marker='o', color='blue')
+plt.fill_between(houses_list, ci_max_lower, ci_max_upper, color='blue', alpha=0.2)
+plt.plot(houses_list, avg_welfare_fair, label='Min #Envy Allocation', marker='x', color='orange')
+plt.fill_between(houses_list, ci_fair_lower, ci_fair_upper, color='orange', alpha=0.2)
+plt.plot(houses_list, avg_welfare_fair_q, label='Min #Envy Allocation (q)', marker='s', color='green')
+plt.fill_between(houses_list, ci_fair_q_lower, ci_fair_q_upper, color='green', alpha=0.2)
+plt.xlabel('Number of Houses',fontsize=16)
+plt.ylabel('Average Total Welfare',fontsize=16)
+plt.title('Welfare Loss in the Min #Envy Allocation',fontsize=16)
 plt.legend()
-plt.yticks(np.arange(9, 9.6, 0.1))
 plt.grid(True)
-plt.tight_layout()
-plt.show() 
-
-
-
-
+plt.show()
 
