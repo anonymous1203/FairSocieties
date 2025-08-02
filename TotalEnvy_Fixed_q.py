@@ -5,16 +5,28 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from itertools import permutations
 
-#Creates the valuation Matrix
-def instance(num_agents, num_houses, max_value=10):
-    M = np.zeros((num_agents, num_houses), dtype=int)
-    for agent in range(num_agents):
-        for house in range(num_houses):
-            M[agent, house] = np.random.randint(0, max_value + 1)
-        # k = np.random.randint(4, num_houses)  # Between 0 and 5 inclusive
-        # if k > 0:
-        #     liked_houses = np.random.choice(num_houses, size=k, replace=False)
-        #     M[agent, liked_houses] = np.random.randint(1, max_value + 1, size=k)
+
+def instance(filename, instance_number):
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    current_matrix = []
+    instances_found = -1
+    for line in lines:
+        line = line.strip()
+        if line.startswith('# Instance'):
+            instances_found += 1
+            if instances_found > instance_number:
+                break  # We read the target instance already
+            current_matrix = []
+        elif line and not line.startswith('#') and instances_found == instance_number:
+            # Parse the matrix line
+            row = [int(x) for x in line.split(',') if x]
+            current_matrix.append(row)
+
+    if not current_matrix:
+        raise ValueError(f"Instance number {instance_number} not found in file.")
+
+    M = np.array(current_matrix, dtype=int)
     print(M)
     return M
 
@@ -545,14 +557,19 @@ ci_fair_q_upper = []
 ci_fair_q_lower = []
 
 
+filename = 'HouseAllocationInstances.csv'
+
+
+
+
 for m_houses in houses_list:
     welfare_max_values = []
     welfare_fair_values = []
     welfare_fair_q_values = []
 
-    for _ in range(num_instances):
+    for i in range(num_instances):
         #find an optimal min total envy allocation with maximium welfare and store it in optimal allocation
-        valuations = instance(n_agents, m_houses)
+         valuations = instance(filename, i)
         # print(valuations)
 
         min_total_envy = float('inf')
