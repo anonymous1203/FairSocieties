@@ -1,0 +1,364 @@
+import numpy as np
+import networkx as nx
+import matplotlib.pyplot as plt
+from itertools import permutations
+
+# --- Instance Loader ---
+def instance(filename, instance_number):
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    current_matrix = []
+    instances_found = -1
+    for line in lines:
+        line = line.strip()
+        if line.startswith('# Instance'):
+            instances_found += 1
+            if instances_found > instance_number:
+                break  # We read the target instance already
+            current_matrix = []
+        elif line and not line.startswith('#') and instances_found == instance_number:
+            row = [int(x) for x in line.split(',') if x]
+            current_matrix.append(row)
+    if not current_matrix:
+        raise ValueError(f"Instance number {instance_number} not found in file.")
+    M = np.array(current_matrix, dtype=int)
+    return M
+
+# --- Welfare and Envy Calculations ---
+def nash_social_welfare(allocation, M):
+    utility = np.zeros(M.shape[0])
+    for agent, house in allocation:
+        utility[agent] = M[agent][house]
+    if np.any(utility == 0):
+        return 0  
+    return np.prod(utility)
+
+def egalitarian_welfare(M, allocation):
+    utility = np.zeros(len(M))
+    for agent, house in allocation:
+        utility[agent] = M[agent][house]
+    return np.min(utility)
+
+def calculate_num_envy(allocation_dict, valuations):
+    if isinstance(allocation_dict, list):
+        allocation_dict = {f'i{a}': f'h{h}' for (a, h) in allocation_dict}
+    allocation = [(int(a[1:]), int(h[1:])) for a, h in allocation_dict.items()]
+    envy_count = 0
+    for a in range(valuations.shape[0]):
+        agent_houses = [h for (agent, h) in allocation if agent == a]
+        if not agent_houses:
+            continue
+        current_house = agent_houses[0]
+        current_value = valuations[a, current_house]
+        for (other_agent, other_house) in allocation:
+            if valuations[a, other_house] > current_value:
+                envy_count += 1
+                break
+    return envy_count
+
+# --- NSW Maximizing Matching ---
+def max_nsw_matching(M):
+    n_agents, n_houses = M.shape
+    G = nx.Graph()
+    for agent in range(n_agents):
+        for house in range(n_houses):
+            if M[agent][house] > 0:
+                weight = np.log(M[agent][house])
+                G.add_edge(agent, n_agents + house, weight=weight)
+    matching = nx.max_weight_matching(G, maxcardinality=True)
+    allocation = []
+    for a, h in matching:
+        if a < n_agents:
+            agent, house = a, h - n_agents
+        else:
+            agent, house = h, a - n_agents
+        allocation.append((agent, house))
+    allocation.sort()
+    return allocation
+
+# --- Egalitarian Maximizing Allocation ---
+def max_egalitarian_allocation(M):
+    n_agents, n_houses = M.shape
+    houses_idx = list(range(n_houses))
+    max_min_utility = -1
+    best_alloc = None
+    for perm in permutations(houses_idx, n_agents):
+        alloc = [(agent, house) for agent, house in enumerate(perm)]
+        min_util = egalitarian_welfare(M, alloc)
+        if min_util > max_min_utility:
+            max_min_utility = min_util
+            best_alloc = alloc
+    return best_alloc
+
+# --- Symmetric Difference and Coloring Tools (as per your algorithms) ---
+def good_coloring(G, A, A_hat, n_agents, m_houses):
+    A_edges = {(a, n_agents + h) for a, h in A}
+    A_hat_edges = {(a, n_agents + h) for a, h in A_hat}
+    T = A_edges.symmetric_difference(A_hat_edges)
+    S = set()
+    for u, v in T:
+        S.add(u)
+        S.add(v)
+    vertex_colors = {node: 'blue' for node in G.nodes()}
+    edge_colors = {}
+    for node in S:
+        vertex_colors[node] = 'red'
+    for u, v in G.edges():
+        edge = (u, v)
+        if edge in T or (v, u) in T:
+            edge_colors[edge] = 'red'
+        elif u in S and v in S:
+            edge_colors[edge] = 'green'
+        elif (u in S) ^ (v in S):
+            edge_colors[edge] = 'blue'
+        else:
+            edge_colors[edge] = 'gray'
+    return vertex_colors, edge_colors
+
+def has_internal_blue_edges(component, edge_colors):
+    for u in component:
+        for v in component:
+            if (u, v) in edge_colors and edge_colors[(u, v)] == 'blue':
+                return True
+    return False
+
+def is_nice_component(current_comp, all_comps, A_hat, valuations):
+    return True
+
+def find_feasible_components(G, vertex_colors, edge_colors, A_hat, valuations):
+    red_edges = [e for e, color in edge_colors.items() if color == 'red']
+    G_red = G.edge_subgraph(red_edges)
+    components = list(nx.connected_components(G_red))
+    paths_in_red = []
+    for component in components:
+        induced_subgraphs = G.subgraph(component)
+        paths_in_red.append(list(induced_subgraphs.edges))
+    feasible = []
+    feasible_paths = []
+    for path in paths_in_red:
+        nodes_in_path = {u for edge in path for u in edge}
+        if any(vertex_colors[node] != 'red' for node in nodes_in_path):
+            continue
+        if has_internal_blue_edges(nodes_in_path, edge_colors):
+            continue
+        if not is_nice_component(nodes_in_path, components, A_hat, valuations):
+            continue
+        feasible.append(nodes_in_path)
+        feasible_paths.append(path)
+    return feasible, feasible_paths
+
+def convert_feasible_paths(feasible_paths, n_agents):
+    labeled_paths = []
+    for path in feasible_paths:
+        node_sequence = []
+        for edge in path:
+            u, v = edge
+            if u not in node_sequence:
+                node_sequence.append(u)
+            if v not in node_sequence:
+                node_sequence.append(v)
+        labeled_nodes = []
+        for node in node_sequence:
+            if node < n_agents:
+                labeled_nodes.append(f'i{node}')
+            else:
+                labeled_nodes.append(f'h{node - n_agents}')
+        labeled_paths.append(labeled_nodes)
+    return labeled_paths
+
+def reorder_labeled_paths(labeled_paths, A_hat):
+    allocated_houses = {f'h{h}' for (_, h) in A_hat}
+    a_hat_mapping = {f'i{a}': f'h{h}' for (a, h) in A_hat}
+    reordered = []
+    for path in labeled_paths:
+        start_house = next((node for node in path if node.startswith('h') and node not in allocated_houses), None)
+        if not start_house:
+            continue
+        new_path = []
+        visited = set()
+        current_node = start_house
+        while len(new_path) < len(path):
+            new_path.append(current_node)
+            visited.add(current_node)
+            if current_node.startswith('h'):
+                agent = next((node for node in path if node.startswith('i') and node not in visited), None)
+                if not agent:
+                    break
+                current_node = agent
+            else:
+                current_node = a_hat_mapping.get(current_node, None)
+                if not current_node or current_node not in path or current_node in visited:
+                    break
+        if len(new_path) == len(path):
+            reordered.append(new_path)
+    return reordered
+
+def compute_allocation_oplus_paths(A_dict, P):
+    def is_house(node): return node.startswith('h')
+    def is_agent(node): return node.startswith('i')
+    edges = []
+    for i in range(len(P) - 1):
+        u, v = P[i], P[i + 1]
+        if is_house(u) and is_agent(v):
+            edges.append((v, u))
+        elif is_agent(u) and is_house(v):
+            edges.append((u, v))
+    new_A = A_dict.copy()
+    for agent, house in edges:
+        if new_A.get(agent) == house:
+            del new_A[agent]
+        else:
+            if agent in new_A:
+                del new_A[agent]
+            new_A[agent] = house
+    return new_A
+
+def apply_all_components(initial_allocation, paths):
+    A_dict = {f'i{a}': f'h{h}' for (a, h) in initial_allocation}
+    for path in paths:
+        A_dict = compute_allocation_oplus_paths(A_dict, path)
+    return [(int(a[1:]), int(h[1:])) for a, h in A_dict.items()]
+
+def apply_q_components(max_matching, reordered_labeled_paths, valuations, q):
+    original_envy = calculate_num_envy(max_matching, valuations)
+    items = []
+    for path in reordered_labeled_paths:
+        agents_affected = len({node for node in path if node.startswith('i')})
+        temp_alloc = apply_all_components(max_matching, [path])
+        new_envy = calculate_num_envy(temp_alloc, valuations)
+        envy_reduction = original_envy - new_envy
+        items.append((envy_reduction, agents_affected, path))
+    dp = [-float('inf')] * (q + 1)
+    dp[0] = 0
+    path_selections = [[] for _ in range(q + 1)]
+    for er, na, path in items:
+        for w in range(q, na - 1, -1):
+            if dp[w - na] + er > dp[w]:
+                dp[w] = dp[w - na] + er
+                path_selections[w] = path_selections[w - na] + [path]
+    max_reduction = max(dp)
+    optimal_weight = max(i for i, val in enumerate(dp) if val == max_reduction)
+    if optimal_weight > 0:
+        return apply_all_components(max_matching, path_selections[optimal_weight])
+    return max_matching
+
+# --- Experiment Loop and Plotting ---
+n_agents = 6
+m_houses = 11
+num_instances = 100
+qs = list(range(0, 7))
+
+# Nash variables
+mean_envious_max_nash = None
+ci_max_lower_nash = None
+ci_max_upper_nash = None
+
+mean_envious_fair_nash = None
+ci_lower_nash = None
+ci_upper_nash = None
+
+# Egal variables
+mean_envious_max_egal = None
+ci_max_lower_egal = None
+ci_max_upper_egal = None
+
+mean_envious_fair_egal = None
+ci_lower_egal = None
+ci_upper_egal = None
+
+filename = 'HouseAllocationInstances.csv'
+
+envious_max_nash = []
+envious_q_nash = [[] for _ in qs]
+
+envious_max_egal = []
+envious_q_egal = [[] for _ in qs]
+
+for i in range(num_instances):
+    valuations = instance(filename, i)
+    nash_alloc = max_nsw_matching(valuations)
+    egal_allocation = max_egalitarian_allocation(valuations)
+
+    envious_max_nash.append(calculate_num_envy(nash_alloc, valuations))
+    envious_max_egal.append(calculate_num_envy(egal_allocation, valuations))
+
+    min_envy = float('inf')
+    best_allocs = []
+    houses_idx = list(range(m_houses))
+    for perm in permutations(houses_idx, n_agents):
+        alloc = [(agent, house) for agent, house in enumerate(perm)]
+        envy = calculate_num_envy(alloc, valuations)
+        if envy < min_envy:
+            min_envy = envy
+            best_allocs = [alloc]
+        elif envy == min_envy:
+            best_allocs.append(alloc)
+    optimal_fair_nash_alloc = max(best_allocs, key=lambda alloc: nash_social_welfare(alloc, valuations))
+    optimal_fair_egal_alloc = max(best_allocs, key=lambda alloc: egalitarian_welfare(valuations, alloc))
+
+    G = nx.Graph()
+    G.add_nodes_from(range(n_agents + m_houses))
+    for a in range(n_agents):
+        for h in range(m_houses):
+            G.add_edge(a, n_agents + h)
+
+    vertex_colors, edge_colors = good_coloring(G, optimal_fair_nash_alloc, nash_alloc, n_agents, m_houses)
+    feasible_comps, feasible_paths = find_feasible_components(G, vertex_colors, edge_colors, nash_alloc, valuations)
+    labeled_paths = convert_feasible_paths(feasible_paths, n_agents)
+    reordered_labeled_paths = reorder_labeled_paths(labeled_paths, optimal_fair_nash_alloc)
+    for idx, q in enumerate(qs):
+        alloc_q = apply_q_components(nash_alloc, reordered_labeled_paths, valuations, q)
+        envious_q_nash[idx].append(calculate_num_envy(alloc_q, valuations))
+
+    vertex_colors_2, edge_colors_2 = good_coloring(G, optimal_fair_egal_alloc, egal_allocation, n_agents, m_houses)
+    feasible_comps_2, feasible_paths_2 = find_feasible_components(G, vertex_colors_2, edge_colors_2, egal_allocation, valuations)
+    labeled_paths_2 = convert_feasible_paths(feasible_paths_2, n_agents)
+    reordered_labeled_paths_2 = reorder_labeled_paths(labeled_paths_2, optimal_fair_egal_alloc)
+    for idx, q in enumerate(qs):
+        alloc_q_2 = apply_q_components(egal_allocation, reordered_labeled_paths_2, valuations, q)
+        envious_q_egal[idx].append(calculate_num_envy(alloc_q_2, valuations))
+
+mean_envious_max_nash = np.mean(envious_max_nash)
+std_max_nash = np.std(envious_max_nash, ddof=1)
+ci_max_nash = 1.96 * std_max_nash / np.sqrt(num_instances)
+ci_max_lower_nash = [mean_envious_max_nash - ci_max_nash] * len(qs)
+ci_max_upper_nash = [mean_envious_max_nash + ci_max_nash] * len(qs)
+mean_envious_fair_nash = [np.mean(vals) for vals in envious_q_nash]
+ci_lower_nash = [np.mean(w) - 1.96 * np.std(w, ddof=1) / np.sqrt(num_instances) for w in envious_q_nash]
+ci_upper_nash = [np.mean(w) + 1.96 * np.std(w, ddof=1) / np.sqrt(num_instances) for w in envious_q_nash]
+
+mean_envious_max_egal = np.mean(envious_max_egal)
+std_max = np.std(envious_max_egal, ddof=1)
+ci_max = 1.96 * std_max / np.sqrt(num_instances)
+ci_max_lower = [mean_envious_max_egal - ci_max] * len(qs)
+ci_max_upper = [mean_envious_max_egal + ci_max] * len(qs)
+mean_envious_fair_egal = [np.mean(vals) for vals in envious_q_egal]
+ci_lower = [np.mean(w) - 1.96 * np.std(w, ddof=1) / np.sqrt(num_instances) for w in envious_q_egal]
+ci_upper = [np.mean(w) + 1.96 * np.std(w, ddof=1) / np.sqrt(num_instances) for w in envious_q_egal]
+
+
+plt.figure(figsize=(10, 6))
+plt.plot(qs, [mean_envious_max_nash]*len(qs), label='Envy in Nash allocation', color='blue', linestyle='-', marker='o')
+plt.fill_between(qs, ci_max_lower_nash, ci_max_upper_nash, color='blue', alpha=0.15)
+
+
+plt.plot(qs, mean_envious_fair_nash, label='Envy after q realloc in Nash', color='blue', linestyle='--', marker='x')
+plt.fill_between(qs, ci_lower_nash, ci_upper_nash, color='blue', alpha=0.10)
+
+
+plt.plot(qs, [mean_envious_max_egal]*len(qs), label='Envy in Egalitarian allocation', color='green', linestyle='-', marker='o')
+plt.fill_between(qs, ci_max_lower, ci_max_upper, color='green', alpha=0.15)
+
+
+plt.plot(qs, mean_envious_fair_egal, label='Envy after q realloc in Egalitarian', color='green', linestyle='--', marker='x')
+plt.fill_between(qs, ci_lower, ci_upper, color='green', alpha=0.10)
+
+
+plt.xlabel('Number of Reallocations (q)', fontsize=16)
+plt.ylabel('Average Number of Envious Agents', fontsize=16)
+plt.title('#Envy After q Reallocations: Nash vs Egalitarian', fontsize=16)
+plt.legend()
+plt.yticks(np.arange(0, 2, 0.1))
+plt.grid(True)
+plt.tight_layout()
+plt.show()
